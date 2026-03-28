@@ -1,11 +1,10 @@
 """
-Shell Handler — Subprocess/PID management for remote command execution.
-Cross-platform: supports both Linux/macOS and Windows.
-Tracks spawned processes, captures output, and provides status/kill APIs.
+Shell Handler — macOS Version
+Subprocess/PID management for remote command execution.
+Uses POSIX process groups (os.setsid / os.killpg) for clean termination.
 """
 
 import subprocess
-import sys
 import os
 import signal
 import threading
@@ -13,8 +12,6 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
-
-IS_WINDOWS = sys.platform == "win32"
 
 
 @dataclass
@@ -72,24 +69,18 @@ class ProcessManager:
     def spawn(self, cmd: str, cwd: Optional[str] = None) -> int:
         """
         Spawn a non-blocking subprocess.
-        On Unix, uses a new process group for clean termination.
-        On Windows, uses CREATE_NEW_PROCESS_GROUP for the same purpose.
+        Uses a new process group (os.setsid) for clean termination on macOS.
         Returns the PID.
         """
-        kwargs: dict = dict(
+        proc = subprocess.Popen(
+            cmd,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             cwd=cwd,
+            preexec_fn=os.setsid,
         )
-
-        if IS_WINDOWS:
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["preexec_fn"] = os.setsid
-
-        proc = subprocess.Popen(cmd, **kwargs)
 
         mp = ManagedProcess(pid=proc.pid, cmd=cmd, process=proc)
 
@@ -118,12 +109,8 @@ class ProcessManager:
         if mp is None:
             return False
         try:
-            if IS_WINDOWS:
-                # On Windows, send CTRL_BREAK_EVENT to the process group
-                mp.process.send_signal(signal.CTRL_BREAK_EVENT)
-            else:
-                # On Unix, terminate the entire process group
-                os.killpg(os.getpgid(mp.process.pid), signal.SIGTERM)
+            # On macOS, terminate the entire process group
+            os.killpg(os.getpgid(mp.process.pid), signal.SIGTERM)
             mp.process.wait(timeout=5)
         except (subprocess.TimeoutExpired, OSError, ProcessLookupError):
             mp.process.kill()

@@ -23,10 +23,12 @@ import { useWebSocket } from '../hooks/useWebSocket';
 
 interface DashboardProps {
   sidecarBase: string;
+  connectionState?: 'connecting' | 'connected' | 'failed';
 }
 
-export default function Dashboard({ sidecarBase }: DashboardProps) {
-  const { stats, connected, history } = useWebSocket(sidecarBase);
+export default function Dashboard({ sidecarBase, connectionState = 'connected' }: DashboardProps) {
+  const isOnline = connectionState === 'connected';
+  const { stats, connected, history } = useWebSocket(sidecarBase, isOnline);
 
   const chartData = useMemo(
     () =>
@@ -42,22 +44,24 @@ export default function Dashboard({ sidecarBase }: DashboardProps) {
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* ── Connection Status ──────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ fontSize: 20, fontWeight: 700 }}>Dashboard</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span className={`badge ${connected ? 'badge-success' : 'badge-danger'}`}>
-            {connected ? (
-              <>
-                <Wifi size={12} /> Connected
-              </>
-            ) : (
-              <>
-                <WifiOff size={12} /> Offline
-              </>
-            )}
-          </span>
-        </div>
+        {isOnline && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className={`badge ${connected ? 'badge-success' : 'badge-warning'}`}>
+              {connected ? (
+                <>
+                  <Wifi size={12} /> Telemetry Live
+                </>
+              ) : (
+                <>
+                  <WifiOff size={12} /> Telemetry Connecting
+                </>
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── Metric Cards ───────────────────────────────────────────────── */}

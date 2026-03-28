@@ -1,53 +1,36 @@
 """
-Ledger Manager — Server-side authority for projects.json and backups.json.
-Thread-safe JSON read/write with cross-platform file locking.
-Supports both Linux/macOS (fcntl) and Windows (msvcrt).
+Ledger Manager — Windows Version
+Server-side authority for projects.json and backups.json.
+Thread-safe JSON read/write with msvcrt-based file locking.
 """
 
 import json
 import os
-import sys
+import msvcrt
 from pathlib import Path
 from typing import Any, Literal
 from datetime import datetime, timezone
 
-IS_WINDOWS = sys.platform == "win32"
 
-# ── Cross-platform file locking ──────────────────────────────────────────────
+# ── File Locking (Windows / msvcrt) ──────────────────────────────────────────
 
-if IS_WINDOWS:
-    import msvcrt
+def _lock_shared(f):
+    """Acquire a shared (read) lock — Windows."""
+    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
 
-    def _lock_shared(f):
-        """Acquire a shared (read) lock — Windows."""
-        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
 
-    def _lock_exclusive(f):
-        """Acquire an exclusive (write) lock — Windows."""
-        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+def _lock_exclusive(f):
+    """Acquire an exclusive (write) lock — Windows."""
+    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
 
-    def _unlock(f):
-        """Release lock — Windows."""
-        try:
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-        except OSError:
-            pass
 
-else:
-    import fcntl
-
-    def _lock_shared(f):
-        """Acquire a shared (read) lock — Unix."""
-        fcntl.flock(f, fcntl.LOCK_SH)
-
-    def _lock_exclusive(f):
-        """Acquire an exclusive (write) lock — Unix."""
-        fcntl.flock(f, fcntl.LOCK_EX)
-
-    def _unlock(f):
-        """Release lock — Unix."""
-        fcntl.flock(f, fcntl.LOCK_UN)
+def _unlock(f):
+    """Release lock — Windows."""
+    try:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
 
 
 # ── Config ───────────────────────────────────────────────────────────────────

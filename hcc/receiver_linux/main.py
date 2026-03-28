@@ -1,17 +1,14 @@
 """
-Heavy Control Center — Receiver (Server 'r')
+Heavy Control Center — Receiver (Linux Version)
 FastAPI application: the thin, authoritative server agent.
 """
 
 import asyncio
 import json
 import os
-import sys
 import shutil
 from pathlib import Path
 from typing import Optional
-
-IS_WINDOWS = sys.platform == "win32"
 
 import psutil
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
@@ -22,7 +19,7 @@ from . import ledger_manager
 from .ledger_manager import LedgerType, HEAVY_DIR
 from .shell_handler import process_manager
 
-app = FastAPI(title="Heavy Control Center — Receiver", version="1.0.0")
+app = FastAPI(title="Heavy Control Center — Receiver (Linux)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,7 +112,7 @@ async def stats_websocket(websocket: WebSocket):
         while True:
             cpu_percent = psutil.cpu_percent(interval=0)
             mem = psutil.virtual_memory()
-            disk = psutil.disk_usage("C:\\" if IS_WINDOWS else "/")
+            disk = psutil.disk_usage("/")
 
             stats = {
                 "cpu_percent": cpu_percent,
@@ -245,4 +242,4 @@ async def get_log(filename: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "heavy-receiver"}
+    return {"status": "ok", "service": "heavy-receiver", "platform": "linux"}

@@ -3,38 +3,36 @@ import { Lock, Delete } from 'lucide-react';
 
 interface PinEntryProps {
   onAuthenticated: () => void;
-  sidecarBase: string;
 }
 
 const PIN_LENGTH = 6;
+const STORAGE_KEY = 'hcc_pin_hash';
 
-export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps) {
+/**
+ * Hash a PIN using SHA-256 and return hex string.
+ * Runs entirely client-side — no sidecar needed.
+ */
+async function hashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin + '_hcc_salt_v1');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export default function PinEntry({ onAuthenticated }: PinEntryProps) {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [isFirstRun, setIsFirstRun] = useState<boolean | null>(null);
+  const [isFirstRun, setIsFirstRun] = useState(false);
   const [phase, setPhase] = useState<'enter' | 'confirm'>('enter');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
 
-
-  // Check vault status on mount
+  // Check if PIN hash exists in localStorage
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${sidecarBase}/auth/status`);
-        const data = await res.json();
-        setIsFirstRun(!data.initialized);
-        if (data.unlocked) {
-          onAuthenticated();
-        }
-      } catch {
-        setError('Cannot connect to sidecar');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [sidecarBase, onAuthenticated]);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    setIsFirstRun(!stored);
+  }, []);
 
   const handleKeyPress = useCallback(
     async (digit: string) => {
@@ -51,58 +49,29 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
             setConfirmPin('');
             setPin(next);
           } else {
-            // Unlock
-            setLoading(true);
-            try {
-              const res = await fetch(`${sidecarBase}/auth/unlock`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: next }),
-              });
-              const data = await res.json();
-              if (data.success) {
-                setSuccess(true);
-                setTimeout(onAuthenticated, 500);
-              } else {
-                setError(data.detail || 'Invalid PIN');
-                setPin('');
-              }
-            } catch {
-              setError('Connection error');
+            // Verify against stored hash
+            const hash = await hashPin(next);
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (hash === stored) {
+              setSuccess(true);
+              setTimeout(onAuthenticated, 400);
+            } else {
+              setError('Invalid PIN');
               setPin('');
-            } finally {
-              setLoading(false);
             }
           }
         }
       } else {
-        // Confirm phase
+        // Confirm phase (first run)
         const next = confirmPin + digit;
         setConfirmPin(next);
         if (next.length === PIN_LENGTH) {
           if (next === pin) {
-            // Create vault
-            setLoading(true);
-            try {
-              const res = await fetch(`${sidecarBase}/auth/init`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pin: next }),
-              });
-              const data = await res.json();
-              if (data.success) {
-                setSuccess(true);
-                setTimeout(onAuthenticated, 500);
-              } else {
-                setError(data.detail || 'Initialization failed');
-                resetAll();
-              }
-            } catch {
-              setError('Connection error');
-              resetAll();
-            } finally {
-              setLoading(false);
-            }
+            // Save hash to localStorage
+            const hash = await hashPin(next);
+            localStorage.setItem(STORAGE_KEY, hash);
+            setSuccess(true);
+            setTimeout(onAuthenticated, 400);
           } else {
             setError('PINs do not match');
             setPhase('enter');
@@ -112,13 +81,14 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
         }
       }
     },
-    [pin, confirmPin, phase, isFirstRun, sidecarBase, onAuthenticated, success]
+    [pin, confirmPin, phase, isFirstRun, onAuthenticated, success]
   );
 
   const resetAll = () => {
     setPhase('enter');
     setPin('');
     setConfirmPin('');
+    setError('');
   };
 
   const handleBackspace = () => {
@@ -145,19 +115,6 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
 
   const currentPin = phase === 'confirm' ? confirmPin : pin;
 
-  if (loading && isFirstRun === null) {
-    return (
-      <div className="pin-screen">
-        <div className="pin-container animate-fade-in">
-          <div className="pin-logo">HCC</div>
-          <p className="pin-subtitle" style={{ color: 'var(--text-muted)' }}>
-            Connecting...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="pin-screen">
       <div className="pin-container animate-fade-in">
@@ -165,7 +122,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
         <p className="pin-subtitle">
           {isFirstRun
             ? phase === 'enter'
-              ? 'Set your Master PIN'
+              ? 'Create your Master PIN'
               : 'Confirm your PIN'
             : 'Enter your PIN'}
         </p>
@@ -177,7 +134,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
               key={i}
               className={`pin-dot ${i < currentPin.length ? 'filled' : ''} ${
                 error ? 'error' : ''
-              }`}
+              } ${success ? 'filled' : ''}`}
             />
           ))}
         </div>
@@ -191,7 +148,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
               key={n}
               className="pin-key"
               onClick={() => handleKeyPress(String(n))}
-              disabled={loading}
+              disabled={success}
               id={`pin-key-${n}`}
             >
               {n}
@@ -200,7 +157,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
           <button
             className="pin-key special"
             onClick={resetAll}
-            disabled={loading}
+            disabled={success}
             id="pin-key-clear"
           >
             CLR
@@ -208,7 +165,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
           <button
             className="pin-key"
             onClick={() => handleKeyPress('0')}
-            disabled={loading}
+            disabled={success}
             id="pin-key-0"
           >
             0
@@ -216,7 +173,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
           <button
             className="pin-key special"
             onClick={handleBackspace}
-            disabled={loading}
+            disabled={success}
             id="pin-key-back"
           >
             <Delete size={20} />
@@ -233,7 +190,7 @@ export default function PinEntry({ onAuthenticated, sidecarBase }: PinEntryProps
             }}
           >
             <Lock size={12} style={{ display: 'inline', marginRight: 4 }} />
-            Your PIN encrypts all connection credentials locally using AES-256-GCM
+            Your PIN is hashed locally. Connection credentials are encrypted on disk.
           </p>
         )}
       </div>

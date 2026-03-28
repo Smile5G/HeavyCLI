@@ -5,6 +5,9 @@ import {
   Settings,
   LogOut,
   X,
+  Loader2,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import PinEntry from './components/PinEntry';
 import Dashboard from './components/Dashboard';
@@ -20,19 +23,49 @@ interface OpenProject {
   meta: Record<string, any>;
 }
 
+type ConnectionState = 'connecting' | 'connected' | 'failed';
+
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [activeView, setActiveView] = useState<'dashboard' | string>('dashboard');
   const [openProjects, setOpenProjects] = useState<OpenProject[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState<Record<string, string>>({});
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const { projects, backups, refresh, loading } = useLedger();
 
-  // Fetch ledgers on auth
+  // After auth, try connecting to the sidecar in background
   useEffect(() => {
-    if (authenticated) {
-      refresh();
-    }
+    if (!authenticated) return;
+
+    let cancelled = false;
+    let retryTimer: number;
+
+    const tryConnect = async () => {
+      setConnectionState('connecting');
+      try {
+        const res = await fetch(`${SIDECAR_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+        if (!cancelled && res.ok) {
+          setConnectionState('connected');
+          refresh();
+        } else if (!cancelled) {
+          setConnectionState('failed');
+          retryTimer = window.setTimeout(tryConnect, 5000);
+        }
+      } catch {
+        if (!cancelled) {
+          setConnectionState('failed');
+          retryTimer = window.setTimeout(tryConnect, 5000);
+        }
+      }
+    };
+
+    tryConnect();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [authenticated, refresh]);
 
   const handleAuthenticated = useCallback(() => {
@@ -43,7 +76,6 @@ export default function App() {
     const remotePath = projects[name];
     if (!remotePath) return;
 
-    // Don't re-add if already open
     if (openProjects.some((p) => p.name === name)) {
       setActiveView(name);
       return;
@@ -58,15 +90,25 @@ export default function App() {
     if (activeView === name) setActiveView('dashboard');
   };
 
-  const handleLock = async () => {
-    try {
-      await fetch(`${SIDECAR_BASE}/auth/lock`, { method: 'POST' });
-    } catch {
-      /* ignore */
-    }
+  const handleLock = () => {
     setAuthenticated(false);
     setOpenProjects([]);
     setActiveView('dashboard');
+    setConnectionState('connecting');
+  };
+
+  const handleRetryConnection = () => {
+    setConnectionState('connecting');
+    fetch(`${SIDECAR_BASE}/health`, { signal: AbortSignal.timeout(5000) })
+      .then((res) => {
+        if (res.ok) {
+          setConnectionState('connected');
+          refresh();
+        } else {
+          setConnectionState('failed');
+        }
+      })
+      .catch(() => setConnectionState('failed'));
   };
 
   const handleSaveSettings = async () => {
@@ -84,10 +126,10 @@ export default function App() {
 
   // ── PIN Gate ───────────────────────────────────────────────────────────
   if (!authenticated) {
-    return <PinEntry onAuthenticated={handleAuthenticated} sidecarBase={SIDECAR_BASE} />;
+    return <PinEntry onAuthenticated={handleAuthenticated} />;
   }
 
-  // ── Main App ───────────────────────────────────────────────────────────
+  // ── Main App (shown immediately after PIN) ─────────────────────────────
   return (
     <div className="app-layout">
       {/* ── Header ───────────────────────────────────────────────────── */}
@@ -110,21 +152,24 @@ export default function App() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Connection Status Pill */}
+          <ConnectionPill state={connectionState} onRetry={handleRetryConnection} />
           <button
             className="btn-icon"
             onClick={() => {
               setShowSettings(true);
-              // Fetch current settings
-              fetch(`${SIDECAR_BASE}/settings`)
-                .then((r) => r.json())
-                .then(setSettingsForm)
-                .catch(() => {});
+              if (connectionState === 'connected') {
+                fetch(`${SIDECAR_BASE}/settings`)
+                  .then((r) => r.json())
+                  .then(setSettingsForm)
+                  .catch(() => {});
+              }
             }}
             id="btn-settings"
           >
             <Settings size={18} />
           </button>
-          <button className="btn-icon" onClick={handleLock} id="btn-lock" title="Lock Vault">
+          <button className="btn-icon" onClick={handleLock} id="btn-lock" title="Lock">
             <LogOut size={18} />
           </button>
         </div>
@@ -167,10 +212,24 @@ export default function App() {
         <aside className="app-sidebar">
           <div className="sidebar-section">
             <div className="sidebar-section-title">Projects</div>
-            {loading ? (
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
-                Loading...
-              </p>
+            {connectionState !== 'connected' ? (
+              <div style={{ padding: '8px 12px' }}>
+                {connectionState === 'connecting' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <Loader2 size={12} className="spin" />
+                    Loading projects...
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Server offline
+                  </p>
+                )}
+              </div>
+            ) : loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
+                <Loader2 size={12} className="spin" />
+                Fetching...
+              </div>
             ) : Object.keys(projects).length === 0 ? (
               <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
                 No projects yet
@@ -196,7 +255,11 @@ export default function App() {
 
           <div className="sidebar-section">
             <div className="sidebar-section-title">Backups</div>
-            {Object.keys(backups).length === 0 ? (
+            {connectionState !== 'connected' ? (
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
+                {connectionState === 'connecting' ? '—' : 'Server offline'}
+              </p>
+            ) : Object.keys(backups).length === 0 ? (
               <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
                 No backups
               </p>
@@ -217,7 +280,9 @@ export default function App() {
 
         {/* ── Main Content ───────────────────────────────────────────── */}
         <main className="app-main">
-          {activeView === 'dashboard' && <Dashboard sidecarBase={SIDECAR_BASE} />}
+          {activeView === 'dashboard' && (
+            <Dashboard sidecarBase={SIDECAR_BASE} connectionState={connectionState} />
+          )}
           {openProjects.map((p) =>
             activeView === p.name ? (
               <ProjectTab
@@ -291,5 +356,43 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ── Connection Status Pill ───────────────────────────────────────────── */
+
+function ConnectionPill({
+  state,
+  onRetry,
+}: {
+  state: ConnectionState;
+  onRetry: () => void;
+}) {
+  if (state === 'connecting') {
+    return (
+      <span className="badge badge-warning" style={{ cursor: 'default' }}>
+        <Loader2 size={11} className="spin" />
+        Connecting...
+      </span>
+    );
+  }
+  if (state === 'connected') {
+    return (
+      <span className="badge badge-success" style={{ cursor: 'default' }}>
+        <Wifi size={11} />
+        Connected
+      </span>
+    );
+  }
+  return (
+    <span
+      className="badge badge-danger"
+      style={{ cursor: 'pointer' }}
+      onClick={onRetry}
+      title="Click to retry"
+    >
+      <WifiOff size={11} />
+      Offline — retry
+    </span>
   );
 }
