@@ -14,6 +14,7 @@ import os
 import signal
 import time
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).parent
 SIDECAR_DIR = ROOT / "hcc" / "client-sidecar"
@@ -43,7 +44,7 @@ RECEIVER_DIR = _get_receiver_dir()
 processes: list[subprocess.Popen] = []
 
 
-def start(name: str, cmd: list[str], cwd: Path, env: dict | None = None):
+def start(name: str, cmd: list[str], cwd: Path, env: Optional[dict] = None):
     """Start a subprocess and track it."""
     merged_env = {**os.environ, **(env or {})}
     print(f"  ▸ {name}: {' '.join(cmd)}")

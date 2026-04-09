@@ -18,6 +18,9 @@ from pydantic import BaseModel
 from . import ledger_manager
 from .ledger_manager import LedgerType, HEAVY_DIR
 from .shell_handler import process_manager
+import time
+
+START_TIME = time.time()
 
 app = FastAPI(title="Heavy Control Center — Receiver (macOS)", version="1.0.0")
 
@@ -38,6 +41,7 @@ async def startup():
     # Ensure standard directories exist
     (HEAVY_DIR / "projects").mkdir(parents=True, exist_ok=True)
     (HEAVY_DIR / "backups").mkdir(parents=True, exist_ok=True)
+    (HEAVY_DIR / "environments").mkdir(parents=True, exist_ok=True)
     (HEAVY_DIR / "logs").mkdir(parents=True, exist_ok=True)
 
 
@@ -118,7 +122,7 @@ async def stats_websocket(websocket: WebSocket):
                 "cpu_percent": cpu_percent,
                 "ram_total_gb": round(mem.total / (1024**3), 2),
                 "ram_used_gb": round(mem.used / (1024**3), 2),
-                "ram_percent": mem.percent,
+                "ram_percent": round((mem.used / mem.total) * 100, 1),
                 "disk_total_gb": round(disk.total / (1024**3), 2),
                 "disk_used_gb": round(disk.used / (1024**3), 2),
                 "disk_percent": disk.percent,
@@ -145,7 +149,7 @@ def _get_gpu_stats() -> Optional[dict]:
                 "memory_total_mb": round(g.memoryTotal, 0),
                 "temperature": g.temperature,
             }
-    except ImportError:
+    except Exception:
         pass
     return None
 
@@ -242,4 +246,11 @@ async def get_log(filename: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "heavy-receiver", "platform": "macos"}
+    return {
+        "status": "ok",
+        "service": "heavy-receiver",
+        "platform": "macos",
+        "heavy_dir": str(HEAVY_DIR),
+        "uptime_seconds": round(time.time() - START_TIME, 1),
+        "version": "1.0.0",
+    }

@@ -4,6 +4,8 @@ absolute remote shell commands and local actions.
 """
 
 import re
+import os
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, Literal
 from datetime import datetime, timezone
@@ -238,9 +240,14 @@ class CommandTranslator:
                 description=f"Open project tab for '{path}'",
             )
 
+        # ── fallback to raw OS command ───────────────────────────────────
+        cwd = project_remote_path or str(Path.home())
         return TranslatedCommand(
-            action="unknown",
-            description=f"Unrecognized command: {raw_input}",
+            action="execute",
+            remote_cmd=raw_input,
+            server_api="/execute",
+            server_body={"cmd": raw_input, "cwd": cwd},
+            description=f"Raw OS Command '{cmd}' in {cwd}",
         )
 
     def _translate_execute(
@@ -268,7 +275,7 @@ class CommandTranslator:
         else:
             python_bin = "python3"
 
-        cwd = project_remote_path or "/heavy/projects"
+        cwd = project_remote_path or str(Path.home())
         full_cmd = f"{python_bin} {filename}"
 
         return TranslatedCommand(

@@ -116,8 +116,10 @@ class ProcessManager:
             mp.process.kill()
         return True
 
-    def list_all(self) -> list[dict]:
-        """List all tracked processes."""
+    def list_all(self, cleanup: bool = True) -> list[dict]:
+        """List all tracked processes. Optionally triggers cleanup first."""
+        if cleanup:
+            self.cleanup_finished()
         with self._lock:
             return [mp.to_dict() for mp in self._processes.values()]
 

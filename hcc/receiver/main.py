@@ -21,8 +21,12 @@ from pydantic import BaseModel
 from . import ledger_manager
 from .ledger_manager import LedgerType, HEAVY_DIR
 from .shell_handler import process_manager
+import time
+import sys
 
-app = FastAPI(title="Heavy Control Center — Receiver", version="1.0.0")
+START_TIME = time.time()
+
+app = FastAPI(title="Heavy Control Center — Receiver (Unified)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +45,7 @@ async def startup():
     # Ensure standard directories exist
     (HEAVY_DIR / "projects").mkdir(parents=True, exist_ok=True)
     (HEAVY_DIR / "backups").mkdir(parents=True, exist_ok=True)
+    (HEAVY_DIR / "environments").mkdir(parents=True, exist_ok=True)
     (HEAVY_DIR / "logs").mkdir(parents=True, exist_ok=True)
 
 
@@ -245,4 +250,11 @@ async def get_log(filename: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "heavy-receiver"}
+    return {
+        "status": "ok",
+        "service": "heavy-receiver",
+        "platform": sys.platform,
+        "heavy_dir": str(HEAVY_DIR),
+        "uptime_seconds": round(time.time() - START_TIME, 1),
+        "version": "1.0.0",
+    }

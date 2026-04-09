@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
   FolderCode,
-  Settings,
   LogOut,
   X,
   Loader2,
@@ -12,7 +11,10 @@ import {
 import PinEntry from './components/PinEntry';
 import Dashboard from './components/Dashboard';
 import ProjectTab from './components/ProjectTab';
+import AdminTab from './components/AdminTab';
+import NewProjectTab from './components/NewProjectTab';
 import { useLedger } from './hooks/useLedger';
+import { ShieldAlert, TerminalSquare } from 'lucide-react';
 import './index.css';
 
 const SIDECAR_BASE = 'http://127.0.0.1:8100';
@@ -27,8 +29,10 @@ type ConnectionState = 'connecting' | 'connected' | 'failed';
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
-  const [activeView, setActiveView] = useState<'dashboard' | string>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'admin' | 'project-task' | string>('dashboard');
   const [openProjects, setOpenProjects] = useState<OpenProject[]>([]);
+  const [openAdmin, setOpenAdmin] = useState(false);
+  const [openProjectTask, setOpenProjectTask] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsForm, setSettingsForm] = useState<Record<string, string>>({});
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
@@ -155,19 +159,18 @@ export default function App() {
           {/* Connection Status Pill */}
           <ConnectionPill state={connectionState} onRetry={handleRetryConnection} />
           <button
-            className="btn-icon"
-            onClick={() => {
-              setShowSettings(true);
-              if (connectionState === 'connected') {
-                fetch(`${SIDECAR_BASE}/settings`)
-                  .then((r) => r.json())
-                  .then(setSettingsForm)
-                  .catch(() => {});
-              }
-            }}
-            id="btn-settings"
+            className="btn btn-ghost"
+            style={{ padding: '6px 12px' }}
+            onClick={() => { setOpenProjectTask(true); setActiveView('project-task'); }}
           >
-            <Settings size={18} />
+            <TerminalSquare size={16} /> Heavy Shell
+          </button>
+          <button
+            className="btn btn-ghost"
+            style={{ padding: '6px 12px' }}
+            onClick={() => { setOpenAdmin(true); setActiveView('admin'); }}
+          >
+            <ShieldAlert size={16} /> Admin Console
           </button>
           <button className="btn-icon" onClick={handleLock} id="btn-lock" title="Lock">
             <LogOut size={18} />
@@ -185,6 +188,34 @@ export default function App() {
           <LayoutDashboard size={14} />
           Dashboard
         </div>
+        {openAdmin && (
+          <div
+            className={`tab ${activeView === 'admin' ? 'active' : ''}`}
+            onClick={() => setActiveView('admin')}
+          >
+            <ShieldAlert size={14} /> Admin Console
+            <span
+              className="tab-close"
+              onClick={(e) => { e.stopPropagation(); setOpenAdmin(false); if(activeView==='admin') setActiveView('dashboard'); }}
+            >
+              <X size={10} />
+            </span>
+          </div>
+        )}
+        {openProjectTask && (
+          <div
+            className={`tab ${activeView === 'project-task' ? 'active' : ''}`}
+            onClick={() => setActiveView('project-task')}
+          >
+            <TerminalSquare size={14} /> Heavy Shell
+            <span
+              className="tab-close"
+              onClick={(e) => { e.stopPropagation(); setOpenProjectTask(false); if(activeView==='project-task') setActiveView('dashboard'); }}
+            >
+              <X size={10} />
+            </span>
+          </div>
+        )}
         {openProjects.map((p) => (
           <div
             key={p.name}
@@ -283,17 +314,30 @@ export default function App() {
           {activeView === 'dashboard' && (
             <Dashboard sidecarBase={SIDECAR_BASE} connectionState={connectionState} />
           )}
-          {openProjects.map((p) =>
-            activeView === p.name ? (
-              <ProjectTab
-                key={p.name}
-                projectName={p.name}
-                remotePath={p.remotePath}
-                projectMeta={p.meta}
-                sidecarBase={SIDECAR_BASE}
-                onClose={() => closeProject(p.name)}
-              />
-            ) : null
+          {activeView === 'admin' && (
+            <AdminTab sidecarBase={SIDECAR_BASE} />
+          )}
+          {activeView === 'project-task' && (
+            <NewProjectTab
+              sidecarBase={SIDECAR_BASE}
+              onProjectCreated={(name) => {
+                refresh();
+                openProject(name);
+              }}
+            />
+          )}
+          {openProjects.map(
+            (p) =>
+              activeView === p.name && (
+                <ProjectTab
+                  key={p.name}
+                  projectName={p.name}
+                  remotePath={p.remotePath}
+                  projectMeta={p.meta}
+                  sidecarBase={SIDECAR_BASE}
+                  onClose={() => closeProject(p.name)}
+                />
+              )
           )}
         </main>
       </div>

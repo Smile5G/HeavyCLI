@@ -4,7 +4,6 @@ import {
   HardDrive,
   MemoryStick,
   Gpu,
-  Power,
   PowerOff,
   Wifi,
   WifiOff,
@@ -139,9 +138,6 @@ export default function Dashboard({ sidecarBase, connectionState = 'connected' }
 
       {/* ── Quick Actions ──────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 12 }}>
-        <button className="btn btn-primary" id="btn-wol" onClick={() => handleWol(sidecarBase)}>
-          <Power size={16} /> Wake on LAN
-        </button>
         <button className="btn btn-danger" id="btn-shutdown" onClick={() => handleShutdown(sidecarBase)}>
           <PowerOff size={16} /> Soft Shutdown
         </button>
@@ -189,18 +185,6 @@ function MetricCard({ icon, label, value, unit, percent, color }: MetricCardProp
 }
 
 /* ── Action Handlers ───────────────────────────────────────────────────── */
-
-async function handleWol(sidecarBase: string) {
-  try {
-    await fetch(`${sidecarBase}/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw_command: 'wol' }),
-    });
-  } catch {
-    // TODO: show toast
-  }
-}
 
 async function handleShutdown(sidecarBase: string) {
   if (!window.confirm('Are you sure you want to shut down the server?')) return;

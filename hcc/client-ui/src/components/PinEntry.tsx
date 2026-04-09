@@ -34,55 +34,72 @@ export default function PinEntry({ onAuthenticated }: PinEntryProps) {
     setIsFirstRun(!stored);
   }, []);
 
-  const handleKeyPress = useCallback(
-    async (digit: string) => {
-      if (success) return;
-      setError('');
+    const handleKeyPress = useCallback(
+      async (digit: string) => {
+        if (success) return;
+        setError('');
 
-      if (phase === 'enter') {
-        const next = pin + digit;
-        setPin(next);
-        if (next.length === PIN_LENGTH) {
-          if (isFirstRun) {
-            // First run: move to confirm phase
-            setPhase('confirm');
-            setConfirmPin('');
-            setPin(next);
-          } else {
-            // Verify against stored hash
-            const hash = await hashPin(next);
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (hash === stored) {
+        if (phase === 'enter') {
+          const next = pin + digit;
+          setPin(next);
+          if (next.length === PIN_LENGTH) {
+            if (isFirstRun) {
+              setPhase('confirm');
+              setConfirmPin('');
+              setPin(next);
+            } else {
+              const hash = await hashPin(next);
+              const stored = localStorage.getItem(STORAGE_KEY);
+              if (hash === stored) {
+                setSuccess(true);
+                // Asynchronously unlock sidecar
+                fetch('http://127.0.0.1:8100/auth/unlock', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ pin: next }),
+                }).then(async res => {
+                  if (!res.ok) {
+                    // Fallback: If server vault was deleted but local browser remembers PIN
+                    await fetch('http://127.0.0.1:8100/auth/init', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ pin: next }),
+                    });
+                  }
+                }).catch(console.error);
+                setTimeout(onAuthenticated, 400);
+              } else {
+                setError('Invalid PIN');
+                setPin('');
+              }
+            }
+          }
+        } else {
+          const next = confirmPin + digit;
+          setConfirmPin(next);
+          if (next.length === PIN_LENGTH) {
+            if (next === pin) {
+              const hash = await hashPin(next);
+              localStorage.setItem(STORAGE_KEY, hash);
               setSuccess(true);
+              // Asynchronously init sidecar
+              fetch('http://127.0.0.1:8100/auth/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin: next }),
+              }).catch(console.error);
               setTimeout(onAuthenticated, 400);
             } else {
-              setError('Invalid PIN');
+              setError('PINs do not match');
+              setPhase('enter');
               setPin('');
+              setConfirmPin('');
             }
           }
         }
-      } else {
-        // Confirm phase (first run)
-        const next = confirmPin + digit;
-        setConfirmPin(next);
-        if (next.length === PIN_LENGTH) {
-          if (next === pin) {
-            // Save hash to localStorage
-            const hash = await hashPin(next);
-            localStorage.setItem(STORAGE_KEY, hash);
-            setSuccess(true);
-            setTimeout(onAuthenticated, 400);
-          } else {
-            setError('PINs do not match');
-            setPhase('enter');
-            setPin('');
-            setConfirmPin('');
-          }
-        }
-      }
-    },
-    [pin, confirmPin, phase, isFirstRun, onAuthenticated, success]
-  );
+      },
+      [pin, confirmPin, phase, isFirstRun, onAuthenticated, success]
+    );
 
   const resetAll = () => {
     setPhase('enter');

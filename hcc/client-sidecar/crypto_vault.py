@@ -85,9 +85,8 @@ class CryptoVault:
             "server_port": 8000,
             "ssh_user": "",
             "ssh_key_path": "",
-            "tailscale_ip": "",
-            "wol_mac": "",
-            "wol_broadcast": "",
+            "ssh_password": "",
+            "mounts": {},
         }
 
         # Generate random salt and nonce

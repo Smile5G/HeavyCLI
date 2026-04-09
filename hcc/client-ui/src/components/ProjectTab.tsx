@@ -43,9 +43,20 @@ export default function ProjectTab({
     })();
   }, [sidecarBase]);
 
+  const processedLinesRef = useRef(0);
+
+  // When activePid changes, reset line tracker
+  useEffect(() => {
+    processedLinesRef.current = 0;
+  }, [activePid]);
+
   // Stream output into terminal-like view
   useEffect(() => {
-    setLogs((prev) => [...prev, ...lines.slice(prev.length)]);
+    const unread = lines.slice(processedLinesRef.current);
+    if (unread.length > 0) {
+      setLogs((prev) => [...prev, ...unread]);
+      processedLinesRef.current = lines.length;
+    }
   }, [lines]);
 
   // Auto-scroll
@@ -57,6 +68,36 @@ export default function ProjectTab({
 
   const handleCommand = async (raw: string) => {
     setLogs((prev) => [...prev, `$ ${raw}`]);
+
+    // Intercept "mount <path>"
+    const mountMatch = raw.match(/^mount\s+(.+)$/i);
+    if (mountMatch) {
+      const mountPath = mountMatch[1];
+      try {
+        // 1. Fetch current settings to avoid overwriting all mounts
+        const getRes = await fetch(`${sidecarBase}/settings`);
+        const { settings } = await getRes.json();
+        
+        const updatedMounts = { ...settings.mounts, [projectName]: mountPath };
+        
+        // 2. Post updated mounts
+        const postRes = await fetch(`${sidecarBase}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates: { mounts: updatedMounts } }),
+        });
+
+        if (postRes.ok) {
+          setLogs((prev) => [...prev, `✓ Mounted local directory: ${mountPath}`]);
+        } else {
+          setLogs((prev) => [...prev, `✗ Failed to save mount directory.`]);
+        }
+      } catch {
+        setLogs((prev) => [...prev, '✗ Sidecar unreachable']);
+      }
+      return;
+    }
+
     try {
       const res = await fetch(`${sidecarBase}/command`, {
         method: 'POST',
@@ -100,36 +141,6 @@ export default function ProjectTab({
       className="animate-fade-in"
       style={{ display: 'flex', height: '100%', gap: 0 }}
     >
-      {/* ── History Sidebar ────────────────────────────────────────────── */}
-      <div
-        style={{
-          width: 200,
-          minWidth: 200,
-          background: 'var(--bg-secondary)',
-          borderRight: '1px solid var(--border-subtle)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">
-            <Clock size={10} style={{ display: 'inline', marginRight: 4 }} />
-            History
-          </div>
-          {logHistory.length === 0 ? (
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
-              No logs yet
-            </p>
-          ) : (
-            logHistory.map((log, i) => (
-              <div key={i} className="sidebar-item" style={{ fontSize: 11 }}>
-                {log}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
       {/* ── Main Terminal Area ─────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
@@ -203,6 +214,36 @@ export default function ProjectTab({
 
         {/* Command Bar */}
         <CommandBar onSubmit={handleCommand} />
+      </div>
+
+      {/* ── History Sidebar ────────────────────────────────────────────── */}
+      <div
+        style={{
+          width: 200,
+          minWidth: 200,
+          background: 'var(--bg-secondary)',
+          borderLeft: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">
+            <Clock size={10} style={{ display: 'inline', marginRight: 4 }} />
+            History
+          </div>
+          {logHistory.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 12px' }}>
+              No logs yet
+            </p>
+          ) : (
+            logHistory.map((log, i) => (
+              <div key={i} className="sidebar-item" style={{ fontSize: 11 }}>
+                {log}
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

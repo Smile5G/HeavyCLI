@@ -34,7 +34,7 @@ app.add_middleware(
 vault = CryptoVault()
 _translator: Optional[CommandTranslator] = None
 _rsync: Optional[RsyncWrapper] = None
-_server_base: str = ""
+_server_base: str = "http://127.0.0.1:8000"
 
 
 def _ensure_unlocked():
@@ -235,11 +235,14 @@ async def ws_output(websocket: WebSocket, pid: int):
                         break
                     data = resp.json()
                     stdout = data.get("stdout_tail", [])
-                    if len(stdout) > seen_lines:
-                        new_lines = stdout[seen_lines:]
+                    stderr = data.get("stderr_tail", [])
+                    total_lines = stdout + [f"⚠ {err}" for err in stderr]
+                    
+                    if len(total_lines) > seen_lines:
+                        new_lines = total_lines[seen_lines:]
                         for line in new_lines:
                             await websocket.send_json({"event": "output", "line": line})
-                        seen_lines = len(stdout)
+                        seen_lines = len(total_lines)
                     if not data.get("running", False):
                         await websocket.send_json({
                             "event": "exit",
@@ -264,12 +267,30 @@ async def ws_stats(websocket: WebSocket):
     import websockets
     try:
         server_ws_url = _server_base.replace("http://", "ws://").replace("https://", "wss://") + "/stats"
-        async with websockets.connect(server_ws_url) as server_ws:
+        print(f"DEBUG: Connecting to receiver stats at {server_ws_url}...")
+        async with websockets.connect(server_ws_url, open_timeout=5) as server_ws:
+            print("DEBUG: Receiver stats connected!")
             while True:
                 data = await server_ws.recv()
                 await websocket.send_text(data)
-    except (WebSocketDisconnect, Exception):
-        pass
+    except Exception as e:
+        print(f"DEBUG: Sidecar stats relay error: {str(e)}")
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+@app.get("/info", dependencies=[Depends(_ensure_unlocked)])
+async def get_info():
+    """Return server info (heavy_dir, etc)."""
+    async with _get_http_client() as client:
+        resp = await client.get("/health")
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "heavy_dir": data.get("heavy_dir", "/heavy"),
+        }
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
@@ -290,8 +311,8 @@ async def health():
 def _init_services(settings: dict):
     """Initialize translator and rsync wrapper from settings."""
     global _translator, _rsync, _server_base
-    host = settings.get("tailscale_ip", settings.get("server_host", "127.0.0.1"))
-    port = settings.get("server_port", 8000)
+    host = settings.get("server_host") or "127.0.0.1"
+    port = settings.get("server_port") or 8000
     _server_base = f"http://{host}:{port}"
     _translator = CommandTranslator(host, port)
     _rsync = RsyncWrapper(settings)
@@ -302,6 +323,8 @@ def _safe_settings(settings: dict) -> dict:
     safe = dict(settings)
     if "ssh_key_path" in safe and safe["ssh_key_path"]:
         safe["ssh_key_path"] = "***" + safe["ssh_key_path"][-20:]
+    if "ssh_password" in safe and safe["ssh_password"]:
+        safe["ssh_password"] = "***"
     return safe
 
 
@@ -312,7 +335,11 @@ def _handle_rsync(action: str, project_name: Optional[str], remote_path: Optiona
     if not project_name or not remote_path:
         return {"error": "No active project"}
 
-    local_path = str(Path.cwd())  # The sidecar's current working directory
+    mounts = vault.settings.get("mounts", {})
+    if project_name and mounts.get(project_name):
+        local_path = mounts[project_name]
+    else:
+        local_path = str(Path.cwd())
 
     if action == "rsync_push":
         result = _rsync.push(local_path, remote_path)
