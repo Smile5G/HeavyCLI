@@ -35,7 +35,7 @@ def _unlock(f):
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-HEAVY_DIR = Path(os.environ.get("HEAVY_DIR", Path.home() / "heavy"))
+HEAVY_DIR = Path(os.environ.get("HEAVY_DIR", "D:/heavy"))
 LEDGERS_DIR = HEAVY_DIR / "ledgers"
 
 LedgerType = Literal["projects", "backups"]
